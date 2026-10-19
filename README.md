@@ -7,7 +7,7 @@
 - 以 **Pi 扩展**（`multi_search` / `multi_fetch` 工具 + `/multi-access` 命令）和 **CLI** 两种形态提供。
 - 零运行时依赖，只用 Node 内置模块；不依赖、不修改 `pi-web-access`。
 
-> 本仓库为私有项目。凭据只从环境变量读取，不写文件、不进日志、不进仓库。
+> 本项目为**纯本地项目**，不使用 GitHub 或任何远程仓库管理。凭据只从环境变量读取，不写文件、不进日志、不进仓库。
 
 ---
 
@@ -27,16 +27,15 @@ set -gx CLEVERSEE_API_KEY '<阿里云 CleverSee API Key>'
 ### 2. 安装为 Pi 扩展
 
 ```bash
-pi install git:github.com/Dowanw0w/multi-access@v0.1.0
+pi install /data/Code/multi-access
 ```
 
-安装后每个 pi 会话自动加载扩展，无需常驻进程或端口。凭据在启动 pi 的 shell 环境里即可。
+Pi 直接从该目录加载（不复制），改动源码后重开 pi 会话即可生效，无需重新安装。
 
 ### 3. 直接使用 CLI
 
 ```bash
-git clone git@github.com:Dowanw0w/multi-access.git
-cd multi-access
+cd /data/Code/multi-access
 node bin/multi-access.mjs status
 node bin/multi-access.mjs search "Kubernetes 1.31 release notes" -n 3
 node bin/multi-access.mjs fetch https://example.com/
