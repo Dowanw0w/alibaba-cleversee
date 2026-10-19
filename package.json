@@ -1,0 +1,31 @@
+{
+  "name": "multi-access",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek-first web search and page fetch with Aliyun CleverSee fallback, shipped as a Pi extension and CLI",
+  "pi": {
+    "extensions": [
+      "./extension/index.mjs"
+    ]
+  },
+  "bin": {
+    "multi-access": "bin/multi-access.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "extension",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node bin/multi-access.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:live": "MULTI_ACCESS_LIVE=1 node --test test/live.test.mjs"
+  },
+  "author": "Dowan",
+  "license": "UNLICENSED"
+}
