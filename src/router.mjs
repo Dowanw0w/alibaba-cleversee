@@ -3,25 +3,21 @@ import { isFailoverKind, MultiAccessError, safeErrorMessage } from "./errors.mjs
 import { createBreaker, createLimiter } from "./guard.mjs";
 import { defaultSleep } from "./util.mjs";
 
-// 熔断只反映 provider 自身健康。目标网页的 404/403/反爬（target）与按设计
-// 改走 CleverSee 的超长 query（query-too-long）都不是 provider 故障；若计入，
-// 几个死链就能把兜底 provider 一起熔断，导致可抓取的页面被跳过。
+// 熔断只反映上游自身健康。目标网页的 404/403/反爬（target）、本地限速排队超时
+// （local-throttle）与参数校验（invalid）都不是上游故障；若计入，几条死链或一波
+// 并发就能把 provider 熔断，导致本可成功的请求被跳过。
 const BREAKER_FAILURE_KINDS = new Set(["auth", "payment", "rate", "transient", "network", "invalid-response"]);
 
 function countsTowardBreaker(kind) {
 	return BREAKER_FAILURE_KINDS.has(kind);
 }
 
-function estimatedCostCny(provider, capability, result) {
-	if (provider === "deepseek") return capability === "search" ? COST_CNY.deepseekSearch : COST_CNY.deepseekFetch;
-	if (provider === "cleversee") {
-		if (capability === "search") {
-			const engine = result?.engine ?? "CNLiteBasic";
-			return (ENGINES[engine]?.pricePer1kCny ?? 8) / 1000;
-		}
-		return result?.mode === "scrape" ? COST_CNY.cleverseeReadPageScrape : COST_CNY.cleverseeReadPageBasic;
+function estimatedCostCny(capability, result) {
+	if (capability === "search") {
+		const engine = result?.engine ?? "CNLiteBasic";
+		return (ENGINES[engine]?.pricePer1kCny ?? 8) / 1000;
 	}
-	return 0;
+	return result?.mode === "scrape" ? COST_CNY.cleverseeReadPageScrape : COST_CNY.cleverseeReadPageBasic;
 }
 
 export function createRouter({ config, providers, now = Date.now, sleep = defaultSleep, log = () => {} } = {}) {
@@ -44,12 +40,7 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 	function getLimiter(provider, capability, mode) {
 		const key = breakerKey(provider, capability, mode);
 		if (!limiters.has(key)) {
-			const qps =
-				provider === "deepseek"
-					? config.deepseek.qps
-					: capability === "search"
-						? config.cleversee.qps
-						: config.cleversee.readPageQps;
+			const qps = capability === "search" ? config.cleversee.qps : config.cleversee.readPageQps;
 			limiters.set(key, createLimiter({ qps, maxWaitMs: config.limiterMaxWaitMs, now, sleep }));
 		}
 		return limiters.get(key);
@@ -76,10 +67,7 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 		}
 		const order = config.providerOrder.filter((name) => providers[name]?.configured);
 		if (order.length === 0) {
-			throw new MultiAccessError(
-				"no provider configured: set DEEPSEEK_SEARCH_API_KEY and/or CLEVERSEE_API_KEY",
-				{ kind: "no-provider" },
-			);
+			throw new MultiAccessError("no provider configured: set CLEVERSEE_API_KEY", { kind: "no-provider" });
 		}
 		return order;
 	}
@@ -93,10 +81,29 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 			.join(", ");
 	}
 
+	// 单上游时不造聚合文案：保留最后一次失败的 kind/status/code，并附完整 attempts。
+	function terminalError(lastError, attempts, message) {
+		if (lastError) {
+			return new MultiAccessError(safeErrorMessage(lastError), {
+				kind: lastError.kind ?? "unknown",
+				provider: lastError.provider ?? null,
+				status: lastError.status ?? 0,
+				code: lastError.code ?? null,
+				attempts,
+				cause: lastError,
+			});
+		}
+		// 没有任何实际调用（全部被熔断跳过）不应被说成「空结果」。
+		const allSkipped = attempts.length > 0 && attempts.every((attempt) => attempt.outcome === "circuit-open");
+		return new MultiAccessError(`${message} (${attemptsSummary(attempts) || "all skipped"})`, {
+			kind: allSkipped ? "circuit-open" : "empty",
+			attempts,
+		});
+	}
+
 	async function runSearch(query, options) {
 		const order = resolveOrder(options);
 		const attempts = [];
-		let degraded = false;
 		let lastError = null;
 
 		for (const name of order) {
@@ -131,9 +138,8 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 						provider: name,
 						capability: "search",
 						attempts: [...attempts, { provider: name, capability: "search", outcome: "ok", ms }],
-						degraded,
 						warnings: result.warnings ?? [],
-						estimatedCostCny: estimatedCostCny(name, "search", result),
+						estimatedCostCny: estimatedCostCny("search", result),
 					},
 				};
 			} catch (error) {
@@ -145,26 +151,16 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 				log({ provider: name, capability: "search", outcome: "error", kind, status: error?.status ?? null, ms });
 				if (countsTowardBreaker(kind)) breaker.recordFailure(now());
 				lastError = error;
-				if (kind === "config" || kind === "no-provider") throw error;
-				if (kind === "auth") {
-					degraded = true;
-					if (config.strictAuth) throw error;
-				}
 				if (!isFailoverKind(kind)) throw error;
 			}
 		}
 
-		const kind = lastError?.kind ?? "empty";
-		throw new MultiAccessError(
-			`no provider returned results (${attemptsSummary(attempts) || "all skipped"})`,
-			{ kind, provider: null, attempts },
-		);
+		throw terminalError(lastError, attempts, "search returned no results");
 	}
 
 	async function runFetch(url, options) {
 		const order = resolveOrder(options);
 		const attempts = [];
-		let degraded = false;
 		let lastError = null;
 
 		for (const name of order) {
@@ -202,8 +198,7 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 							provider: name,
 							capability: "fetch",
 							attempts: [...attempts, { provider: name, capability: "fetch", mode, outcome: "ok", ms }],
-							degraded,
-							estimatedCostCny: estimatedCostCny(name, "fetch", result),
+							estimatedCostCny: estimatedCostCny("fetch", result),
 						},
 					};
 				} catch (error) {
@@ -215,21 +210,12 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 					log({ provider: name, capability: "fetch", mode, outcome: "error", kind, status: error?.status ?? null, ms });
 					if (countsTowardBreaker(kind)) breaker.recordFailure(now());
 					lastError = error;
-					if (kind === "config" || kind === "no-provider") throw error;
-					if (kind === "auth") {
-						degraded = true;
-						if (config.strictAuth) throw error;
-					}
 					if (!isFailoverKind(kind)) throw error;
 				}
 			}
 		}
 
-		const kind = lastError?.kind ?? "empty";
-		throw new MultiAccessError(
-			`unable to fetch page through any provider (${attemptsSummary(attempts) || "all skipped"})`,
-			{ kind, provider: null, attempts },
-		);
+		throw terminalError(lastError, attempts, "unable to fetch page");
 	}
 
 	return {
@@ -248,7 +234,6 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 				providers: Object.fromEntries(Object.entries(providers).map(([name, provider]) => [name, { configured: Boolean(provider.configured) }])),
 				circuits,
 				counters: Object.fromEntries(counters),
-				strictAuth: config.strictAuth,
 			};
 		},
 	};

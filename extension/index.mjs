@@ -6,10 +6,6 @@ const SNIPPET_CHARS = 400;
 
 const client = createMultiAccess();
 
-function providerOption(value) {
-	return value && value !== "auto" ? value : undefined;
-}
-
 function attemptsLine(meta) {
 	const attempts = meta?.attempts ?? [];
 	if (attempts.length === 0) return "";
@@ -40,9 +36,8 @@ function truncateBlock(text, limit) {
 function formatSearch(response) {
 	const { provider, results, meta } = response;
 	const lines = [];
-	const providerLabel = provider === "deepseek" ? "DeepSeek" : "CleverSee";
-	const degraded = meta?.degraded ? "（降级）" : "";
-	lines.push(`multi-access · ${providerLabel}${degraded} · ${results.length} results · ~¥${Number(meta?.estimatedCostCny ?? 0).toFixed(4)}`);
+	const engine = response.engine ?? meta?.engine ?? "CNLiteBasic";
+	lines.push(`multi-access · CleverSee ${engine} · ${results.length} results · ~¥${Number(meta?.estimatedCostCny ?? 0).toFixed(4)}`);
 	const trail = attemptsLine(meta);
 	if (trail) lines.push(`attempts: ${trail}`);
 	lines.push("");
@@ -68,43 +63,40 @@ function formatSearch(response) {
 	if (warnings.length > 0) lines.push(`warnings: ${warnings.join("; ")}`);
 
 	const block = truncateBlock(lines.join("\n").trim(), MAX_SEARCH_CHARS);
-	return block;
+	return { ...block, provider };
 }
 
 function formatFetch(response) {
-	const providerLabel = response.provider === "deepseek" ? "DeepSeek" : `CleverSee ${response.mode ?? "basic"}`;
-	const degraded = response.meta?.degraded ? "（降级）" : "";
+	const providerLabel = `CleverSee ${response.mode ?? "basic"}`;
 	const head = [
-		`multi-access · ${providerLabel}${degraded} · ${response.content.length} chars${costLabel(response.meta)}`,
+		`multi-access · ${providerLabel} · ${response.content.length} chars${costLabel(response.meta)}`,
 		`url: ${response.url}`,
 		response.title ? `title: ${response.title}` : null,
 		response.meta?.cached ? "cached: true" : null,
 		"---",
 	].filter(Boolean);
-	const body = truncateBlock(`${head.join("\n")}\n${response.content}`, MAX_FETCH_CHARS);
-	return body;
+	return truncateBlock(`${head.join("\n")}\n${response.content}`, MAX_FETCH_CHARS);
 }
 
 export const multiSearchTool = {
 	name: "multi_search",
 	label: "Multi-Access Search",
 	description:
-		"Web search through DeepSeek first, with Aliyun CleverSee as fallback. DeepSeek supports site:/after: query operators; CleverSee adds Chinese-first sources and structured domain/time filters. Returns titles, URLs, snippets and metadata; use multi_fetch for full page text.",
-	promptSnippet: "multi_search: DeepSeek-first web search with CleverSee fallback",
+		"Web search through Aliyun CleverSee (search/unified). Supports structured domain filters and recency; query operators such as site:/after:/-site: are NOT supported — use include_domains/exclude_domains/recency instead. Returns titles, URLs, snippets and metadata; use multi_fetch for full page text.",
+	promptSnippet: "multi_search: Aliyun CleverSee web search",
 	promptGuidelines: [
-		"Prefer multi_search for web searches. It routes DeepSeek first and falls back to CleverSee when DeepSeek errors or returns no results.",
-		"Pass include_domains/exclude_domains or recency when you need site- or time-scoped results.",
+		"Prefer multi_search for web searches; it calls Aliyun CleverSee (CNLiteBasic by default).",
+		"Pass include_domains/exclude_domains or recency when you need site- or time-scoped results — do not rely on site:/after: query operators, they are not available.",
 	],
 	parameters: {
 		type: "object",
 		properties: {
-			query: { type: "string", description: "Search query. DeepSeek accepts up to 128 characters including generated operators." },
+			query: { type: "string", description: "Search query." },
 			count: { type: "integer", minimum: 1, maximum: 50, description: "Number of results (default 5)." },
 			recency: { type: "string", enum: ["day", "week", "month", "year"], description: "Restrict to recently published pages." },
 			include_domains: { type: "array", items: { type: "string" }, description: "Only return results from these domains." },
 			exclude_domains: { type: "array", items: { type: "string" }, description: "Exclude results from these domains." },
-			need_content: { type: "boolean", description: "Ask the provider to include page text. CleverSee mainText is capped near 3000 chars." },
-			provider: { type: "string", enum: ["auto", "deepseek", "cleversee"], description: "Force a provider instead of the configured failover order." },
+			need_content: { type: "boolean", description: "Ask CleverSee to include page text in results (mainText is capped near 3000 chars)." },
 		},
 		required: ["query"],
 	},
@@ -117,14 +109,13 @@ export const multiSearchTool = {
 			includeDomains: params.include_domains,
 			excludeDomains: params.exclude_domains,
 			needContent: Boolean(params.need_content),
-			provider: providerOption(params.provider),
 			signal,
 		});
 		const block = formatSearch(response);
 		return {
 			content: [{ type: "text", text: block.text }],
 			details: {
-				provider: response.provider,
+				provider: block.provider,
 				results: response.results,
 				meta: response.meta,
 				truncated: block.truncated,
@@ -138,8 +129,8 @@ export const multiFetchTool = {
 	name: "multi_fetch",
 	label: "Multi-Access Fetch",
 	description:
-		"Fetch one web page and return Markdown. DeepSeek Fetch is tried first; Aliyun CleverSee ReadPage is the fallback (readpage covers static pages and, when enabled, browser-rendered pages). Successful fetches are cached briefly in-process.",
-	promptSnippet: "multi_fetch: DeepSeek-first page fetch with CleverSee ReadPage fallback",
+		"Fetch one web page and return Markdown through Aliyun CleverSee ReadPage. Static pages use readpage/basic; set scrape to allow the browser-rendered readpage/scrape fallback (slower, higher cost). Successful fetches are cached briefly in-process.",
+	promptSnippet: "multi_fetch: Aliyun CleverSee ReadPage fetch",
 	promptGuidelines: ["Use multi_fetch when you already have a URL and need its readable content."],
 	parameters: {
 		type: "object",
@@ -147,7 +138,6 @@ export const multiFetchTool = {
 			url: { type: "string", description: "HTTP(S) URL to fetch. Private/loopback hosts are refused unless explicitly allowed." },
 			scrape: { type: "boolean", description: "Allow the CleverSee browser-rendered fallback (slower, higher cost)." },
 			refresh: { type: "boolean", description: "Bypass the in-process cache." },
-			provider: { type: "string", enum: ["auto", "deepseek", "cleversee"], description: "Force a provider instead of the configured failover order." },
 		},
 		required: ["url"],
 	},
@@ -157,7 +147,6 @@ export const multiFetchTool = {
 		const response = await client.fetch(params.url, {
 			scrape: params.scrape,
 			refresh: params.refresh,
-			provider: providerOption(params.provider),
 			signal,
 		});
 		const block = formatFetch(response);
@@ -188,7 +177,7 @@ function formatStatus(status) {
 		}
 	}
 	lines.push(`cache: ${status.cache.entries} entries / ttl ${status.cache.ttlSeconds}s`);
-	lines.push(`strictAuth: ${status.reads.strictAuth} · allowPrivate: ${status.reads.allowPrivate} · scrape: ${status.reads.cleverseeScrape}`);
+	lines.push(`allowPrivate: ${status.reads.allowPrivate} · scrape: ${status.reads.cleverseeScrape}`);
 	return lines.join("\n");
 }
 
@@ -200,6 +189,7 @@ async function runDoctor() {
 	return [
 		`multi-access doctor`,
 		`provider: ${response.provider}`,
+		`engine: ${response.engine ?? "-"}`,
 		`elapsed: ${elapsed}ms`,
 		`results: ${response.results.length}`,
 		first ? `first: ${first.title} (${first.url})` : "first: -",
@@ -212,7 +202,7 @@ export default function multiAccessExtension(pi) {
 	pi.registerTool(multiFetchTool);
 
 	pi.registerCommand("multi-access", {
-		description: "Multi-access status, doctor, or cache control (DeepSeek + CleverSee)",
+		description: "Multi-access status, doctor, or cache control (Aliyun CleverSee)",
 		handler: async (args, ctx) => {
 			const command = String(args ?? "").trim().split(/\s+/)[0] || "status";
 			const notify = (message, level = "info") => {

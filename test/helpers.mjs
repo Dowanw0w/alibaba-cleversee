@@ -21,7 +21,6 @@ export function scriptedFetch(handler) {
 
 export function testConfig(env = {}) {
 	return loadConfig({
-		DEEPSEEK_SEARCH_API_KEY: "test-deepseek-key",
 		CLEVERSEE_API_KEY: "test-cleversee-key",
 		...env,
 	});
@@ -60,7 +59,7 @@ export function sampleResult(overrides = {}) {
 		siteIcon: null,
 		score: null,
 		authority: null,
-		provider: "deepseek",
+		provider: "cleversee",
 		...overrides,
 	};
 }

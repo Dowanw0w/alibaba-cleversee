@@ -2,7 +2,6 @@ import { createCache } from "./cache.mjs";
 import { loadConfig, PROVIDER_NAMES, RECENCY_VALUES } from "./config.mjs";
 import { MultiAccessError } from "./errors.mjs";
 import { createCleverSeeProvider } from "./providers/cleversee.mjs";
-import { createDeepSeekProvider } from "./providers/deepseek.mjs";
 import { createRouter } from "./router.mjs";
 import { assertFetchableUrl, clamp } from "./util.mjs";
 
@@ -39,8 +38,6 @@ export function createMultiAccess(options = {}) {
 	const env = options.env ?? process.env;
 	const config = loadConfig(env, {
 		engine: options.engine,
-		order: options.order,
-		deepseekKey: options.deepseekKey,
 		cleverseeKey: options.cleverseeKey,
 	});
 
@@ -49,11 +46,9 @@ export function createMultiAccess(options = {}) {
 		now: options.now ?? Date.now,
 	};
 
-	const deepseek = createDeepSeekProvider(config.deepseek, deps);
 	const cleversee = createCleverSeeProvider(config.cleversee, deps);
 
 	const providers = {
-		deepseek: { ...deepseek, configured: Boolean(config.deepseek.apiKey) },
 		cleversee: { ...cleversee, configured: Boolean(config.cleversee.apiKey) },
 	};
 
@@ -102,7 +97,6 @@ export function createMultiAccess(options = {}) {
 				...router.status(),
 				cache: { entries: cache.size, ttlSeconds: Math.round(config.cacheTtlMs / 1000) },
 				reads: {
-					strictAuth: config.strictAuth,
 					allowPrivate: config.allowPrivate,
 					cleverseeEngine: config.engine,
 					cleverseeScrape: config.cleversee.scrape,

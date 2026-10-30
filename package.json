@@ -1,9 +1,9 @@
 {
   "name": "multi-access",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "DeepSeek-first web search and page fetch with Aliyun CleverSee fallback, shipped as a Pi extension and CLI",
+  "description": "Aliyun CleverSee web search and page fetch, shipped as a Pi extension and CLI",
   "pi": {
     "extensions": [
       "./extension/index.mjs"

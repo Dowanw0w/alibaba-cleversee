@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createMultiAccess, ENGINES } from "../src/index.mjs";
 
-const USAGE = `multi-access — DeepSeek-first search/fetch with CleverSee fallback
+const USAGE = `multi-access — Aliyun CleverSee search/fetch
 
 Usage:
   multi-access search <query> [options]
@@ -16,13 +16,11 @@ Search options:
       --include <domains>   comma-separated include list
       --exclude <domains>   comma-separated exclude list
       --content             request page text from the provider
-      --provider <auto|deepseek|cleversee>
       --engine <name>       CleverSee engine (${Object.keys(ENGINES).join(", ")})
 
 Fetch options:
       --scrape              allow CleverSee browser-rendered fallback
       --refresh             bypass the in-process cache
-      --provider <auto|deepseek|cleversee>
 
 Global:
       --json                print machine-readable JSON
@@ -75,9 +73,6 @@ function parseArgs(argv) {
 				break;
 			case "--refresh":
 				flags.refresh = true;
-				break;
-			case "--provider":
-				flags.provider = take();
 				break;
 			case "--engine":
 				flags.engine = take();
@@ -145,7 +140,7 @@ async function main() {
 
 	if (command === "doctor") {
 		const started = Date.now();
-		const result = await client.search("multi-access doctor self test", { count: 1, provider: flags.provider });
+		const result = await client.search("multi-access doctor self test", { count: 1 });
 		const first = result.results[0];
 		const lines = [
 			"multi-access doctor",
@@ -167,7 +162,6 @@ async function main() {
 			includeDomains: flags.includeDomains,
 			excludeDomains: flags.excludeDomains,
 			needContent: flags.needContent,
-			provider: flags.provider === "auto" ? undefined : flags.provider,
 		});
 		process.stdout.write(flags.json ? `${JSON.stringify(result, null, 2)}\n` : `${formatSearchHuman(result)}\n`);
 		return;
@@ -179,7 +173,6 @@ async function main() {
 		const result = await client.fetch(url, {
 			scrape: flags.scrape,
 			refresh: flags.refresh,
-			provider: flags.provider === "auto" ? undefined : flags.provider,
 		});
 		process.stdout.write(flags.json ? `${JSON.stringify(result, null, 2)}\n` : `${formatFetchHuman(result)}\n`);
 		return;

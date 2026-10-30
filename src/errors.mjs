@@ -25,8 +25,7 @@ export class MultiAccessError extends Error {
 	}
 }
 
-// 允许触发「换下一家」的分类。
-// auth 默认也换（可用 MULTI_ACCESS_STRICT_AUTH=1 改为立即失败）；
+// 允许触发「继续尝试下一档」的分类（当前仅 CleverSee readpage basic → scrape）。
 // config / no-provider / aborted 属于不可恢复，直接上抛。
 const FAILOVER_KINDS = new Set([
 	"auth",
@@ -36,7 +35,7 @@ const FAILOVER_KINDS = new Set([
 	"network",
 	"invalid",
 	"invalid-response",
-	"query-too-long",
+	"local-throttle",
 	"target",
 	"empty",
 ]);

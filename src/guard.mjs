@@ -1,7 +1,9 @@
 import { MultiAccessError } from "./errors.mjs";
 import { defaultSleep } from "./util.mjs";
 
-// 令牌桶限速：等待超过上限时抛 rate 错误，交给路由切换。
+// 令牌桶限速：等待超过上限时抛 local-throttle 错误，交给路由切换。
+// 使用独立 kind：本地排队超时是调用方并发造成的，不能计入熔断（否则一波并发
+// 就能把健康的上游熔断），也不应与上游 429 的 rate 混为一谈。
 export function createLimiter({ qps, maxWaitMs = 1_500, now = Date.now, sleep = defaultSleep } = {}) {
 	const capacity = Math.max(1, qps);
 	const refillPerMs = capacity / 1000;
@@ -24,7 +26,7 @@ export function createLimiter({ qps, maxWaitMs = 1_500, now = Date.now, sleep = 
 			}
 			const waitMs = Math.ceil((1 - tokens) / refillPerMs);
 			if (waitMs > maxWaitMs) {
-				throw new MultiAccessError(`rate limit wait ${waitMs}ms exceeds ${maxWaitMs}ms`, { kind: "rate" });
+				throw new MultiAccessError(`rate limit wait ${waitMs}ms exceeds ${maxWaitMs}ms`, { kind: "local-throttle" });
 			}
 			await sleep(waitMs);
 			refill(now());
