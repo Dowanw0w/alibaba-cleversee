@@ -115,6 +115,68 @@ test("breaker opens after consecutive failures and half-opens after cooldown", a
 	assert.equal(calls, 2);
 });
 
+test("target errors do not open the fetch breaker", async () => {
+	let cleverseeCalls = 0;
+	let deepseekCalls = 0;
+	const deepseek = fakeProvider("deepseek", {
+		fetchPage: async (url) => {
+			deepseekCalls += 1;
+			if (url === "https://good.example/ok") {
+				return { provider: "deepseek", mode: "fetch", url, title: "ok", content: "# ok", meta: {} };
+			}
+			throw errorOf("target", "HTTP 404", { status: 404 });
+		},
+	});
+	const cleversee = fakeProvider("cleversee", {
+		fetchPage: async (url, options) => {
+			cleverseeCalls += 1;
+			if (url === "https://good.example/ok") {
+				return { provider: "cleversee", mode: options.mode, url, title: "ok", content: "# ok", meta: {} };
+			}
+			throw errorOf("target", "ReadPage 404", { status: 404 });
+		},
+	});
+	const config = testConfig({ MULTI_ACCESS_BREAKER_THRESHOLD: "2" });
+	const router = createRouter({ config, providers: { deepseek, cleversee }, now: () => 1_000, sleep: async () => {} });
+
+	for (let index = 0; index < 3; index += 1) {
+		await assert.rejects(
+			router.fetch(`https://dead.example/${index}`, {}),
+			(error) => error.kind === "target",
+		);
+	}
+	assert.equal(cleverseeCalls, 3);
+	assert.ok(router.status().circuits.every((circuit) => circuit.state === "closed"));
+
+	const result = await router.fetch("https://good.example/ok", {});
+	assert.equal(result.provider, "deepseek");
+	assert.equal(deepseekCalls, 4);
+});
+
+test("query-too-long does not open the search breaker", async () => {
+	let deepseekCalls = 0;
+	const deepseek = fakeProvider("deepseek", {
+		search: async () => {
+			deepseekCalls += 1;
+			if (deepseekCalls <= 2) throw errorOf("query-too-long", "query too long");
+			return { provider: "deepseek", results: [sampleResult()], meta: {} };
+		},
+	});
+	const cleversee = fakeProvider("cleversee", { search: searchOk("cleversee") });
+	const config = testConfig({ MULTI_ACCESS_BREAKER_THRESHOLD: "2" });
+	const router = createRouter({ config, providers: { deepseek, cleversee }, now: () => 1_000, sleep: async () => {} });
+
+	for (let index = 0; index < 2; index += 1) {
+		const result = await router.search("x".repeat(200), {});
+		assert.equal(result.provider, "cleversee");
+	}
+	assert.ok(router.status().circuits.every((circuit) => circuit.state === "closed"));
+
+	const result = await router.search("short", {});
+	assert.equal(result.provider, "deepseek");
+	assert.equal(deepseekCalls, 3);
+});
+
 test("explicit provider skips the failover chain", async () => {
 	let cleverseeCalls = 0;
 	const deepseek = fakeProvider("deepseek", { search: searchOk("deepseek") });

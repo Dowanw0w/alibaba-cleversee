@@ -3,6 +3,15 @@ import { isFailoverKind, MultiAccessError, safeErrorMessage } from "./errors.mjs
 import { createBreaker, createLimiter } from "./guard.mjs";
 import { defaultSleep } from "./util.mjs";
 
+// 熔断只反映 provider 自身健康。目标网页的 404/403/反爬（target）与按设计
+// 改走 CleverSee 的超长 query（query-too-long）都不是 provider 故障；若计入，
+// 几个死链就能把兜底 provider 一起熔断，导致可抓取的页面被跳过。
+const BREAKER_FAILURE_KINDS = new Set(["auth", "payment", "rate", "transient", "network", "invalid-response"]);
+
+function countsTowardBreaker(kind) {
+	return BREAKER_FAILURE_KINDS.has(kind);
+}
+
 function estimatedCostCny(provider, capability, result) {
 	if (provider === "deepseek") return capability === "search" ? COST_CNY.deepseekSearch : COST_CNY.deepseekFetch;
 	if (provider === "cleversee") {
@@ -134,7 +143,7 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 				attempts.push({ provider: name, capability: "search", outcome: "error", kind, status: error?.status ?? null, message: safeErrorMessage(error), ms });
 				count(name, "search", "error");
 				log({ provider: name, capability: "search", outcome: "error", kind, status: error?.status ?? null, ms });
-				breaker.recordFailure(now());
+				if (countsTowardBreaker(kind)) breaker.recordFailure(now());
 				lastError = error;
 				if (kind === "config" || kind === "no-provider") throw error;
 				if (kind === "auth") {
@@ -204,7 +213,7 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 					attempts.push({ provider: name, capability: "fetch", mode, outcome: "error", kind, status: error?.status ?? null, message: safeErrorMessage(error), ms });
 					count(name, "fetch", "error");
 					log({ provider: name, capability: "fetch", mode, outcome: "error", kind, status: error?.status ?? null, ms });
-					breaker.recordFailure(now());
+					if (countsTowardBreaker(kind)) breaker.recordFailure(now());
 					lastError = error;
 					if (kind === "config" || kind === "no-provider") throw error;
 					if (kind === "auth") {

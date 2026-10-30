@@ -91,7 +91,7 @@ node bin/multi-access.mjs fetch https://example.com/
 
 其他机制：
 
-- **熔断**：同一 provider 连续失败 3 次 → open 120s，之后 half-open 放一个探针。
+- **熔断**：同一 provider 连续失败 3 次 → open 120s，之后 half-open 放一个探针。只统计 provider 自身故障（鉴权/欠费/限流/超时/网络/响应异常）；目标网页 404/403 等 `target` 错误与 `query-too-long` 不计入。
 - **限速**：DeepSeek 5 QPS、CleverSee 搜索 10 QPS、ReadPage 5 QPS；排队超过 1.5s 直接切下一家。
 - **成本**：结果里带 `estimatedCostCny`，只统计成功调用。
 
