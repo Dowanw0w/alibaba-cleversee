@@ -22,6 +22,13 @@ globalThis.fetch = scriptedFetch((call) => {
 		});
 	}
 	if (call.url.endsWith("/readpage/basic")) {
+		if (String(call.body?.url ?? "").includes("redirect-me")) {
+			return jsonResponse({
+				requestId: "rp-2",
+				errorCode: null,
+				data: { statusCode: 200, markdown: "# Home\n\nLanding page", metadata: { title: "Home", url: "https://example.com/" } },
+			});
+		}
 		return jsonResponse({ requestId: "rp-1", errorCode: null, data: { statusCode: 200, markdown: "# Example\n\nBody", metadata: { title: "Example" } } });
 	}
 	throw new Error(`unexpected URL ${call.url}`);
@@ -64,6 +71,18 @@ test("cleversee_fetch executes ReadPage and returns markdown", async () => {
 	assert.match(text, /alibaba-cleversee · CleverSee basic/);
 	assert.match(text, /# Example/);
 	assert.equal(result.details.provider, "cleversee");
+});
+
+test("cleversee_fetch warns when the page redirected elsewhere", async () => {
+	const result = await cleverSeeFetchTool.execute("call-3", { url: "https://example.com/redirect-me" }, undefined);
+	const text = result.content[0].text;
+	assert.match(text, /warning: redirected to https:\/\/example\.com\//);
+	assert.equal(result.details.meta.redirectedTo, "https://example.com/");
+});
+
+test("cleversee_fetch advertises the scrape escape hatch", () => {
+	assert.match(cleverSeeFetchTool.description, /scrape/);
+	assert.ok(cleverSeeFetchTool.promptGuidelines.some((line) => /scrape: true/.test(line)));
 });
 
 test("command status and doctor use the same client", async () => {

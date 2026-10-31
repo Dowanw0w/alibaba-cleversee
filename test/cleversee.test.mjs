@@ -159,3 +159,76 @@ test("cleversee readpage maps target and provider errors", async () => {
 	});
 	await assert.rejects(rateLimited.fetchPage("https://example.com"), (error) => error.kind === "rate");
 });
+
+function readPageProvider(payload, env = {}) {
+	const fetchImpl = scriptedFetch(() => jsonResponse(payload));
+	const provider = createCleverSeeProvider(testConfig(env).cleversee, { fetchImpl, now: () => NOW });
+	return { provider, fetchImpl };
+}
+
+test("cleversee readpage forwards the configured page budget", async () => {
+	const { provider, fetchImpl } = readPageProvider(
+		{ data: { statusCode: 200, markdown: "# Title\n\nBody", metadata: { title: "Title" } } },
+		{ CLEVERSEE_PAGE_TIMEOUT_MS: "45000" },
+	);
+	await provider.fetchPage("https://example.com/a", { mode: "basic" });
+	assert.equal(fetchImpl.calls[0].body.pageTimeout, 45_000);
+});
+
+test("cleversee readpage treats a 408 as a retryable transient timeout", async () => {
+	const { provider } = readPageProvider({ data: { statusCode: 408, markdown: "" } });
+	await assert.rejects(provider.fetchPage("https://example.com/slow", { mode: "basic" }), (error) => {
+		assert.equal(error.kind, "transient");
+		assert.equal(error.status, 408);
+		assert.match(error.message, /did not finish within 20000ms/);
+		return true;
+	});
+});
+
+test("cleversee readpage keeps client errors as targets and server errors as transient", async () => {
+	const forbidden = readPageProvider({ data: { statusCode: 403, markdown: "" } }).provider;
+	await assert.rejects(forbidden.fetchPage("https://example.com/blocked", { mode: "basic" }), (error) => error.kind === "target");
+
+	const broken = readPageProvider({ data: { statusCode: 500, markdown: "" } }).provider;
+	await assert.rejects(broken.fetchPage("https://example.com/broken", { mode: "basic" }), (error) => error.kind === "transient");
+});
+
+test("cleversee readpage rejects anti-bot interstitials instead of returning them", async () => {
+	const body = { data: { statusCode: 200, markdown: "Please wait...", metadata: {} } };
+
+	const basic = readPageProvider(body).provider;
+	await assert.rejects(basic.fetchPage("https://juejin.cn/post/1", { mode: "basic" }), (error) => {
+		assert.equal(error.kind, "empty");
+		assert.match(error.message, /anti-bot interstitial/);
+		assert.match(error.message, /retry with scrape enabled/);
+		return true;
+	});
+
+	const scraped = readPageProvider(body).provider;
+	await assert.rejects(scraped.fetchPage("https://juejin.cn/post/1", { mode: "scrape" }), (error) => error.kind === "target");
+});
+
+test("cleversee readpage flags a redirect away from the requested page", async () => {
+	const { provider } = readPageProvider({
+		data: {
+			statusCode: 200,
+			markdown: "# Home\n\nLanding page",
+			metadata: { title: "Home", url: "https://example.com/gone-article", redirectedUrl: "https://example.com" },
+		},
+	});
+	const result = await provider.fetchPage("https://example.com/gone-article", { mode: "basic" });
+	assert.equal(result.meta.redirectedTo, "https://example.com/");
+	assert.equal(result.meta.requestedUrl, "https://example.com/gone-article");
+});
+
+test("cleversee readpage does not flag same-path redirects", async () => {
+	const { provider } = readPageProvider({
+		data: {
+			statusCode: 200,
+			markdown: "# Article\n\nBody",
+			metadata: { title: "Article", url: "https://www.example.com/a/", redirectedUrl: "https://www.example.com/a/" },
+		},
+	});
+	const result = await provider.fetchPage("https://example.com/a", { mode: "basic" });
+	assert.equal(result.meta.redirectedTo, null);
+});

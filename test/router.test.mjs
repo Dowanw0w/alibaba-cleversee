@@ -169,3 +169,68 @@ test("router fetch reports the last failure with both attempts", async () => {
 		(error) => error.kind === "target" && error.attempts.length === 2 && error.attempts.every((attempt) => attempt.outcome === "error"),
 	);
 });
+
+test("router fetch retries a transient failure in the same mode", async () => {
+	const modes = [];
+	let calls = 0;
+	const providers = cleverseeOnly({
+		fetchPage: async (url, options) => {
+			calls += 1;
+			modes.push(options.mode);
+			if (calls === 1) throw errorOf("transient", "ReadPage timed out", { status: 408 });
+			return { provider: "cleversee", mode: options.mode, url, title: "T", content: "# T", meta: {} };
+		},
+	});
+	const router = createRouter({ config: testConfig(), providers, now: () => 1_000, sleep: async () => {} });
+
+	const result = await router.fetch("https://slow.example/a", {});
+	assert.equal(calls, 2);
+	assert.deepEqual(modes, ["basic", "basic"]);
+	assert.equal(result.meta.attempts[0].kind, "transient");
+	assert.equal(result.meta.attempts.at(-1).outcome, "ok");
+});
+
+test("router fetch honours CLEVERSEE_FETCH_RETRIES=0", async () => {
+	let calls = 0;
+	const providers = cleverseeOnly({
+		fetchPage: async () => {
+			calls += 1;
+			throw errorOf("transient", "ReadPage timed out", { status: 408 });
+		},
+	});
+	const config = testConfig({ CLEVERSEE_FETCH_RETRIES: "0" });
+	const router = createRouter({ config, providers, now: () => 1_000, sleep: async () => {} });
+
+	await assert.rejects(router.fetch("https://slow.example/a", {}), (error) => error.kind === "transient");
+	assert.equal(calls, 1);
+});
+
+test("router fetch does not retry target failures", async () => {
+	let calls = 0;
+	const providers = cleverseeOnly({
+		fetchPage: async () => {
+			calls += 1;
+			throw errorOf("target", "ReadPage 403", { status: 403 });
+		},
+	});
+	const router = createRouter({ config: testConfig(), providers, now: () => 1_000, sleep: async () => {} });
+
+	await assert.rejects(router.fetch("https://blocked.example/a", {}), (error) => error.kind === "target");
+	assert.equal(calls, 1);
+});
+
+test("router fetch escalates an anti-bot interstitial to scrape when enabled", async () => {
+	const modes = [];
+	const providers = cleverseeOnly({
+		fetchPage: async (url, options) => {
+			modes.push(options.mode);
+			if (options.mode === "basic") throw errorOf("empty", "anti-bot interstitial");
+			return { provider: "cleversee", mode: options.mode, url, title: "Real", content: "# Real", meta: {} };
+		},
+	});
+	const router = createRouter({ config: testConfig(), providers, now: () => 1_000, sleep: async () => {} });
+
+	const result = await router.fetch("https://juejin.cn/post/1", { scrape: true });
+	assert.deepEqual(modes, ["basic", "scrape"]);
+	assert.equal(result.content, "# Real");
+});

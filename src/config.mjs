@@ -43,6 +43,10 @@ export function loadConfig(env = process.env, overrides = {}) {
 		throw new CleverSeeError(`unknown CleverSee engine "${engine}" (allowed: ${Object.keys(ENGINES).join(", ")})`, { kind: "config" });
 	}
 
+	// 上游 ReadPage 的单页渲染预算，与本地 HTTP 超时解耦：慢站（实测 6.7~18.5s）
+	// 会稳定超过 10s 并让上游以 statusCode=408 返回，故默认放到 20s。
+	const pageTimeoutMs = readInt(env, "CLEVERSEE_PAGE_TIMEOUT_MS", 20_000, { min: 1_000, max: 120_000 });
+
 	return {
 		providerOrder: [...PROVIDER_NAMES],
 		engine,
@@ -59,8 +63,12 @@ export function loadConfig(env = process.env, overrides = {}) {
 			baseUrl: String(env.CLEVERSEE_BASE_URL || "https://cloud-iqs.aliyuncs.com").replace(/\/+$/, ""),
 			engine,
 			searchTimeoutMs: readInt(env, "CLEVERSEE_SEARCH_TIMEOUT_MS", 15_000, { min: 1_000, max: 120_000 }),
-			readPageTimeoutMs: readInt(env, "CLEVERSEE_READPAGE_TIMEOUT_MS", 15_000, { min: 1_000, max: 120_000 }),
-			scrapeTimeoutMs: readInt(env, "CLEVERSEE_SCRAPE_TIMEOUT_MS", 30_000, { min: 1_000, max: 120_000 }),
+			pageTimeoutMs,
+			// 本地 HTTP 超时必须大于上游渲染预算，否则会先把请求打断成 network 错误。
+			readPageTimeoutMs: readInt(env, "CLEVERSEE_READPAGE_TIMEOUT_MS", pageTimeoutMs + 5_000, { min: 1_000, max: 180_000 }),
+			scrapeTimeoutMs: readInt(env, "CLEVERSEE_SCRAPE_TIMEOUT_MS", Math.max(30_000, pageTimeoutMs + 10_000), { min: 1_000, max: 180_000 }),
+			fetchRetries: readInt(env, "CLEVERSEE_FETCH_RETRIES", 1, { min: 0, max: 3 }),
+			fetchRetryBackoffMs: readInt(env, "CLEVERSEE_FETCH_RETRY_BACKOFF_MS", 400, { min: 0, max: 5_000 }),
 			qps: readInt(env, "CLEVERSEE_QPS", 10, { min: 1, max: 100 }),
 			readPageQps: readInt(env, "CLEVERSEE_READPAGE_QPS", 5, { min: 1, max: 100 }),
 			summary: readBool(env, "CLEVERSEE_SUMMARY", false),

@@ -8,6 +8,9 @@ import { defaultSleep } from "./util.mjs";
 // 并发就能把 provider 熔断，导致本可成功的请求被跳过。
 const BREAKER_FAILURE_KINDS = new Set(["auth", "payment", "rate", "transient", "network", "invalid-response"]);
 
+// 同档重试只针对「上游/网络瞬时故障」。目标站 403/404 与反爬页重试无意义。
+const RETRYABLE_KINDS = new Set(["transient", "network"]);
+
 function countsTowardBreaker(kind) {
 	return BREAKER_FAILURE_KINDS.has(kind);
 }
@@ -167,50 +170,71 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 			const provider = providers[name];
 			const scrapeEnabled = options.scrape ?? config.cleversee.scrape;
 			const modes = name === "cleversee" ? ["basic", ...(scrapeEnabled ? ["scrape"] : [])] : [null];
+			const maxTries = 1 + Math.max(0, config.cleversee.fetchRetries ?? 0);
 
 			for (const mode of modes) {
 				const breaker = getBreaker(name, "fetch", mode);
-				if (!breaker.canAttempt(now())) {
-					attempts.push({ provider: name, capability: "fetch", mode, outcome: "circuit-open" });
-					count(name, "fetch", "skipped");
-					continue;
-				}
 
-				const started = now();
-				try {
-					await getLimiter(name, "fetch", mode).acquire();
-					const result = await provider.fetchPage(url, { ...options, mode: mode ?? options.mode });
-					const ms = now() - started;
-
-					if (!result.content) {
-						attempts.push({ provider: name, capability: "fetch", mode, outcome: "empty", ms });
-						count(name, "fetch", "empty");
-						continue;
+				for (let attempt = 1; attempt <= maxTries; attempt += 1) {
+					if (!breaker.canAttempt(now())) {
+						attempts.push({ provider: name, capability: "fetch", mode, outcome: "circuit-open" });
+						count(name, "fetch", "skipped");
+						break;
 					}
 
-					breaker.recordSuccess();
-					count(name, "fetch", "ok");
-					log({ provider: name, capability: "fetch", mode, outcome: "ok", ms, chars: result.content.length });
-					return {
-						...result,
-						meta: {
-							...result.meta,
+					const started = now();
+					try {
+						await getLimiter(name, "fetch", mode).acquire();
+						const result = await provider.fetchPage(url, { ...options, mode: mode ?? options.mode });
+						const ms = now() - started;
+
+						if (!result.content) {
+							attempts.push({ provider: name, capability: "fetch", mode, outcome: "empty", ms, attempt });
+							count(name, "fetch", "empty");
+							break;
+						}
+
+						breaker.recordSuccess();
+						count(name, "fetch", "ok");
+						log({ provider: name, capability: "fetch", mode, outcome: "ok", ms, attempt, chars: result.content.length });
+						return {
+							...result,
+							meta: {
+								...result.meta,
+								provider: name,
+								capability: "fetch",
+								attempts: [...attempts, { provider: name, capability: "fetch", mode, outcome: "ok", ms, attempt }],
+								estimatedCostCny: estimatedCostCny("fetch", result),
+							},
+						};
+					} catch (error) {
+						const ms = now() - started;
+						const kind = error?.kind ?? "transient";
+						if (kind === "aborted") throw error;
+						attempts.push({
 							provider: name,
 							capability: "fetch",
-							attempts: [...attempts, { provider: name, capability: "fetch", mode, outcome: "ok", ms }],
-							estimatedCostCny: estimatedCostCny("fetch", result),
-						},
-					};
-				} catch (error) {
-					const ms = now() - started;
-					const kind = error?.kind ?? "transient";
-					if (kind === "aborted") throw error;
-					attempts.push({ provider: name, capability: "fetch", mode, outcome: "error", kind, status: error?.status ?? null, message: safeErrorMessage(error), ms });
-					count(name, "fetch", "error");
-					log({ provider: name, capability: "fetch", mode, outcome: "error", kind, status: error?.status ?? null, ms });
-					if (countsTowardBreaker(kind)) breaker.recordFailure(now());
-					lastError = error;
-					if (!isFailoverKind(kind)) throw error;
+							mode,
+							outcome: "error",
+							kind,
+							status: error?.status ?? null,
+							message: safeErrorMessage(error),
+							ms,
+							attempt,
+						});
+						count(name, "fetch", "error");
+						log({ provider: name, capability: "fetch", mode, outcome: "error", kind, status: error?.status ?? null, ms, attempt });
+						if (countsTowardBreaker(kind)) breaker.recordFailure(now());
+						lastError = error;
+
+						if (RETRYABLE_KINDS.has(kind) && attempt < maxTries) {
+							const backoff = Math.max(0, config.cleversee.fetchRetryBackoffMs ?? 0) * attempt;
+							if (backoff > 0) await sleep(backoff);
+							continue;
+						}
+						if (!isFailoverKind(kind)) throw error;
+						break;
+					}
 				}
 			}
 		}

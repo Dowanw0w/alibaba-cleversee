@@ -1,6 +1,6 @@
 {
   "name": "@dowanw0w/alibaba-cleversee",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Unofficial Pi extension and CLI for Alibaba Cloud CleverSee web search and page fetch",
   "type": "module",
   "license": "MIT",

@@ -56,10 +56,12 @@ Key 只从环境变量读取，不写文件、不进日志、不进仓库。请�
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `url` | string | 必填 | 仅 http/https；默认拒绝回环/私网地址与 URL 内凭据 |
-| `scrape` | boolean | false | 允许 `readpage/basic` 失败后降级到浏览器渲染的 `readpage/scrape`（更慢、更贵） |
+| `scrape` | boolean | false | 允许 `readpage/basic` 失败后降级到浏览器渲染的 `readpage/scrape`（更慢、更贵）。**Cloudflare 挑战站（如 openai.com）与 JS 渲染站必须开** |
 | `refresh` | boolean | false | 跳过进程内缓存 |
 
 成功结果会进入进程内 LRU 缓存（默认 10 分钟 / 100 条），避免同一 URL 重复计费。
+
+返回头部在页面被重定向到别处时会追加一行 `warning: redirected to …`（`details.meta.redirectedTo` 同时给出落地 URL），避免把 301→首页当成目标文章。
 
 ### 命令
 
@@ -103,17 +105,21 @@ CLEVERSEE_ENGINE=GlobalAdvanced alibaba-cleversee search "..."
 
 ## 路由、限速与熔断
 
-单上游，没有 provider 兜底；同一请求内只有 fetch 的 `basic → scrape` 一档降级。
+单上游，没有 provider 兜底；同一请求内只有 fetch 的 `basic → scrape` 一档降级 + 同档瞬时故障重试。
 
 | 上游结果 | 动作 |
 |---|---|
 | 搜索成功且非空 | 直接返回 |
 | 搜索成功但 0 条 | 报 `empty` 错误（不会静默返回空列表） |
 | fetch `readpage/basic` 失败且开了 `scrape` | 继续尝试 `readpage/scrape` |
+| `408` / `5xx` / 网络错误（`transient`、`network`） | 同档重试 1 次（`CLEVERSEE_FETCH_RETRIES`），仍失败才换档 |
 | `401/403`（凭据未激活等） | 直接报 `auth`，不重试 |
 | `402` 余额不足 / `429` 限流 / `5xx` / 超时 / 网络错误 | 报对应 kind；计入熔断 |
-| 目标网页 404/403/反爬（`ReadPage.SecurityRestrict` 等） | 报 `target`；**不计入**熔断 |
+| 目标网页 404/403（`ReadPage.SecurityRestrict` 等） | 报 `target`；**不计入**熔断、不重试 |
+| `basic` 返回反爬中间页（`Please wait` / `Just a moment` / 无标题且正文极短） | 按 `empty` 处理并提示开 `scrape`；开了则自动升级到 `scrape` |
 | 本地限速排队超时 | 报 `local-throttle`；**不计入**熔断 |
+
+> `data.statusCode = 408` 是上游对「单页渲染超出 `pageTimeout`」的表达，与目标站真实 408 无法区分，统一按 `transient` 重试。
 
 - **熔断**：同一 provider 同一能力（fetch 按 basic/scrape 分开）连续失败 3 次 → open 120s，之后 half-open 放一个探针。只统计上游自身故障；`target`、`local-throttle`、`invalid` 不计入。
 - **限速**：搜索 10 QPS、ReadPage 5 QPS；排队超过 1.5s 直接失败（`local-throttle`）。
@@ -130,8 +136,11 @@ CLEVERSEE_ENGINE=GlobalAdvanced alibaba-cleversee search "..."
 | `CLEVERSEE_QPS` | `10` | 搜索限速 |
 | `CLEVERSEE_READPAGE_QPS` | `5` | ReadPage 限速 |
 | `CLEVERSEE_SEARCH_TIMEOUT_MS` | `15000` | 搜索超时 |
-| `CLEVERSEE_READPAGE_TIMEOUT_MS` | `15000` | ReadPage 超时 |
-| `CLEVERSEE_SCRAPE_TIMEOUT_MS` | `30000` | Scrape 超时 |
+| `CLEVERSEE_READPAGE_TIMEOUT_MS` | `pageTimeout + 5000` | 本地 HTTP 超时（须大于 `pageTimeout`） |
+| `CLEVERSEE_PAGE_TIMEOUT_MS` | `20000` | 上游单页渲染预算；慢站（实测 6.7–18.5s）需调高，超时表现为 `statusCode=408` |
+| `CLEVERSEE_SCRAPE_TIMEOUT_MS` | `max(30000, pageTimeout + 10000)` | Scrape 本地超时 |
+| `CLEVERSEE_FETCH_RETRIES` | `1` | 同档瞬时故障重试次数（0–3） |
+| `CLEVERSEE_FETCH_RETRY_BACKOFF_MS` | `400` | 重试退避基数（按第 n 次线性递增） |
 | `CLEVERSEE_SUMMARY` | `0` | 置 1 开启 CleverSee 增强摘要（+2.8 元/千次） |
 | `CLEVERSEE_SCRAPE` | `0` | 置 1 让 fetch 默认带 Scrape 兜底 |
 | `CLEVERSEE_READPAGE_MAX_AGE` | `0` | ReadPage 服务端缓存秒数，0 表示不使用 |
@@ -153,7 +162,9 @@ CLEVERSEE_ENGINE=GlobalAdvanced alibaba-cleversee search "..."
 - **没有 query 操作符**：`site:` / `after:` / `-site:` / `lang:` 不适用，请用 `include_domains` / `exclude_domains` / `recency`（`CNAuto`、`Generic` 等引擎不支持站点过滤，会返回 warning 并忽略）。
 - **单上游无兜底**：CleverSee 不可用时直接失败，没有第二家可切。
 - 返回条数受引擎上限约束（见上表）。
-- `ReadPageScrape` 平均耗时可达 30s，默认关闭。
+- `ReadPageScrape` 平均耗时可达 30s，默认关闭；Cloudflare 挑战站（openai.com 等）在 `basic` 下恒为 403，必须显式开 `scrape`。
+- 不做重定向语义校验：301 到别的页面（如首页）只告警，不报错——正文可能是别的页面。
+- 反爬中间页识别是启发式（关键词 + 无标题短正文），不保证覆盖所有厂商的挑战页。
 - 不提供代理、cookie、PDF/YouTube 专项抓取。
 - 不做模型内置搜索（`enable_search` / Responses `web_search`），只暴露独立 API 能力。
 - 账号余额、配额、数据合规与计费由使用者与阿里云之间解决，与本项目无关。

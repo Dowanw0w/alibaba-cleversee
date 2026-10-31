@@ -136,6 +136,65 @@ function readPageError(code, message, status) {
 	});
 }
 
+// 上游 ReadPage 把「目标页渲染超时」也放进 data.statusCode（实测 408），
+// 与目标站点真实返回的 408 无法区分；两者都应由同档重试消化，而不是判成
+// target（那样既不重试也不计入熔断，还会把责任错归给目标站）。
+// 历史代码里的 4080/4290 属于同一套内部码，一并保留。
+const TARGET_STATUS_KINDS = new Map([
+	[408, "transient"],
+	[4080, "transient"],
+	[429, "rate"],
+	[4290, "rate"],
+]);
+
+function isServerStatus(statusCode) {
+	return (statusCode >= 500 && statusCode < 600) || (statusCode >= 5000 && statusCode < 6000);
+}
+
+function targetStatusKind(statusCode) {
+	const mapped = TARGET_STATUS_KINDS.get(statusCode);
+	if (mapped) return mapped;
+	return isServerStatus(statusCode) ? "transient" : "target";
+}
+
+// 反爬中间页以 HTTP 200 返回（实测掘金 14 字符 "Please wait..."），
+// 若不识别会被当成功返回，静默污染下游。
+const CHALLENGE_MARKERS = [
+	/please wait/i,
+	/just a moment/i,
+	/enable javascript/i,
+	/checking your browser/i,
+	/verify you are (a )?human/i,
+	/cf-browser-verification|cf_chl_opt|challenge-platform|attention required/i,
+	/安全验证|人机验证|正在验证|滑动验证|请稍候|访问过于频繁/,
+];
+
+const MIN_USABLE_CHARS = 80;
+
+export function challengeReason(content, title) {
+	const head = `${title}\n${content.slice(0, 600)}`;
+	if (CHALLENGE_MARKERS.some((pattern) => pattern.test(head))) return "anti-bot interstitial";
+	// 无标题且几乎无正文：保守判为中间页（有标题的短页面仍按正常结果返回）。
+	if (!title && content.length < MIN_USABLE_CHARS) return "too little text and no title";
+	return null;
+}
+
+function redirectTarget(requested, metadata) {
+	// redirectedUrl 是上游实际落地的 URL（301/302 后）；metadata.url 可能是请求本身。
+	const finalUrl = textOneLine(metadata?.redirectedUrl) || textOneLine(metadata?.url);
+	if (!finalUrl) return null;
+	try {
+		const from = new URL(requested);
+		const to = new URL(finalUrl);
+		const trim = (path) => path.replace(/\/+$/, "");
+		const host = (value) => value.toLowerCase().replace(/^www\./, "");
+		if (host(from.hostname) === host(to.hostname) && trim(from.pathname) === trim(to.pathname)) return null;
+		return to.href;
+	} catch {
+		return null;
+	}
+}
+
 export function createCleverSeeProvider(config, deps = {}) {
 	const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
 	const now = deps.now ?? Date.now;
@@ -219,7 +278,7 @@ export function createCleverSeeProvider(config, deps = {}) {
 				formats: ["markdown"],
 				readability: { readabilityMode: "article" },
 				maxAge: options.maxAge ?? config.readPageMaxAge,
-				pageTimeout: mode === "scrape" ? 10_000 : 10_000,
+				pageTimeout: options.pageTimeoutMs ?? config.pageTimeoutMs ?? 20_000,
 			};
 
 			const res = await requestJson(`${config.baseUrl}/readpage/${mode}`, {
@@ -240,8 +299,11 @@ export function createCleverSeeProvider(config, deps = {}) {
 			const data = res.data?.data ?? {};
 			const statusCode = Number(data.statusCode);
 			if (Number.isFinite(statusCode) && statusCode >= 400) {
-				const message = `target returned status ${statusCode}`;
-				const kind = statusCode === 4080 ? "transient" : statusCode === 4290 ? "rate" : "target";
+				const kind = targetStatusKind(statusCode);
+				const message =
+					kind === "transient"
+						? `page fetch did not finish within ${options.pageTimeoutMs ?? config.pageTimeoutMs}ms (raise CLEVERSEE_PAGE_TIMEOUT_MS)`
+						: `target returned status ${statusCode}`;
 				throw new CleverSeeError(`CleverSee ReadPage ${mode}: ${message}`, {
 					kind,
 					provider: "cleversee",
@@ -259,16 +321,32 @@ export function createCleverSeeProvider(config, deps = {}) {
 				});
 			}
 
+			const title = textOneLine(data.metadata?.title);
+			const challenge = challengeReason(content, title);
+			if (challenge) {
+				// basic 阶段的中间页属于可恢复：交给 router 升到 scrape（若开启）。
+				const kind = mode === "basic" ? "empty" : "target";
+				const hint = mode === "basic" ? "; retry with scrape enabled for a browser-rendered page" : "";
+				throw new CleverSeeError(
+					`CleverSee ReadPage ${mode}: ${challenge} (${content.length} chars${title ? ", title present" : ", no title"})${hint}`,
+					{ kind, provider: "cleversee", status: Number.isFinite(statusCode) ? statusCode : res.status },
+				);
+			}
+
+			const redirectedTo = redirectTarget(url, data.metadata);
+
 			return {
 				provider: "cleversee",
 				mode,
 				url: data.metadata?.url || url,
-				title: textOneLine(data.metadata?.title),
+				title,
 				content,
 				meta: {
 					requestId: res.data?.requestId ?? null,
 					statusCode: Number.isFinite(statusCode) ? statusCode : null,
 					pageType: data.metadata?.pageType ?? null,
+					requestedUrl: url,
+					redirectedTo,
 				},
 			};
 		},

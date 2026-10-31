@@ -72,6 +72,7 @@ function formatFetch(response) {
 		`alibaba-cleversee · ${providerLabel} · ${response.content.length} chars${costLabel(response.meta)}`,
 		`url: ${response.url}`,
 		response.title ? `title: ${response.title}` : null,
+		response.meta?.redirectedTo ? `warning: redirected to ${response.meta.redirectedTo} — content may not match the requested page` : null,
 		response.meta?.cached ? "cached: true" : null,
 		"---",
 	].filter(Boolean);
@@ -129,14 +130,17 @@ export const cleverSeeFetchTool = {
 	name: "cleversee_fetch",
 	label: "Alibaba CleverSee Fetch",
 	description:
-		"Fetch one web page and return Markdown through Aliyun CleverSee ReadPage. Static pages use readpage/basic; set scrape to allow the browser-rendered readpage/scrape fallback (slower, higher cost). Successful fetches are cached briefly in-process.",
+		"Fetch one web page and return Markdown through Aliyun CleverSee ReadPage. Static pages use readpage/basic; set scrape to allow the browser-rendered readpage/scrape fallback (slower, higher cost). Successful fetches are cached briefly in-process. If basic fails with HTTP 403, an anti-bot interstitial, or a page timeout, retry once with scrape enabled — Cloudflare-protected sites (e.g. openai.com) never succeed on basic.",
 	promptSnippet: "cleversee_fetch: Aliyun CleverSee ReadPage fetch",
-	promptGuidelines: ["Use cleversee_fetch when you already have a URL and need its readable content."],
+	promptGuidelines: [
+		"Use cleversee_fetch when you already have a URL and need its readable content.",
+		"On 403 / anti-bot interstitial / page-timeout errors, retry once with scrape: true instead of switching sources.",
+	],
 	parameters: {
 		type: "object",
 		properties: {
 			url: { type: "string", description: "HTTP(S) URL to fetch. Private/loopback hosts are refused unless explicitly allowed." },
-			scrape: { type: "boolean", description: "Allow the CleverSee browser-rendered fallback (slower, higher cost)." },
+			scrape: { type: "boolean", description: "Allow the CleverSee browser-rendered fallback (slower, higher cost). Needed for Cloudflare-protected or JS-rendered sites." },
 			refresh: { type: "boolean", description: "Bypass the in-process cache." },
 		},
 		required: ["url"],

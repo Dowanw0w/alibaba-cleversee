@@ -33,3 +33,24 @@ test("loadConfig exposes engine capabilities", () => {
 	assert.equal(config.engineInfo.maxResults, 80);
 	assert.equal(config.engineInfo.siteFilters, false);
 });
+
+test("loadConfig sizes the client timeout above the upstream page budget", () => {
+	const config = loadConfig({ CLEVERSEE_API_KEY: "c" });
+	assert.equal(config.cleversee.pageTimeoutMs, 20_000);
+	assert.equal(config.cleversee.readPageTimeoutMs, 25_000);
+	assert.equal(config.cleversee.scrapeTimeoutMs, 30_000);
+	assert.equal(config.cleversee.fetchRetries, 1);
+});
+
+test("loadConfig allows raising the page budget and disabling retries", () => {
+	const config = loadConfig({ CLEVERSEE_API_KEY: "c", CLEVERSEE_PAGE_TIMEOUT_MS: "45000", CLEVERSEE_FETCH_RETRIES: "0" });
+	assert.equal(config.cleversee.pageTimeoutMs, 45_000);
+	assert.equal(config.cleversee.readPageTimeoutMs, 50_000);
+	assert.equal(config.cleversee.scrapeTimeoutMs, 55_000);
+	assert.equal(config.cleversee.fetchRetries, 0);
+});
+
+test("loadConfig rejects an out-of-range page budget", () => {
+	assert.throws(() => loadConfig({ CLEVERSEE_PAGE_TIMEOUT_MS: "999" }), (error) => error.kind === "config");
+	assert.throws(() => loadConfig({ CLEVERSEE_PAGE_TIMEOUT_MS: "0" }), (error) => error.kind === "config");
+});
