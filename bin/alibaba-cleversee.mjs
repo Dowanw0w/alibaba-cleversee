@@ -35,10 +35,11 @@ function splitList(value) {
 }
 
 function parseArgs(argv) {
-	const [command = "help", ...rest] = argv;
+	const args = [...argv];
+	const command = args[0] === undefined || args[0].startsWith("-") ? "help" : args.shift();
 	const flags = { _: [] };
-	for (let index = 0; index < rest.length; index += 1) {
-		const token = rest[index];
+	for (let index = 0; index < args.length; index += 1) {
+		const token = args[index];
 		if (!token.startsWith("-")) {
 			flags._.push(token);
 			continue;
@@ -46,7 +47,7 @@ function parseArgs(argv) {
 		const [name, inline] = token.split("=", 2);
 		const take = () => {
 			if (inline !== undefined) return inline;
-			const next = rest[index + 1];
+			const next = args[index + 1];
 			if (next === undefined || next.startsWith("-")) return true;
 			index += 1;
 			return next;
