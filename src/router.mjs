@@ -1,5 +1,5 @@
 import { COST_CNY, ENGINES } from "./config.mjs";
-import { isFailoverKind, MultiAccessError, safeErrorMessage } from "./errors.mjs";
+import { isFailoverKind, CleverSeeError, safeErrorMessage } from "./errors.mjs";
 import { createBreaker, createLimiter } from "./guard.mjs";
 import { defaultSleep } from "./util.mjs";
 
@@ -58,16 +58,16 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 	function resolveOrder(options) {
 		if (options.provider) {
 			if (!providers[options.provider]) {
-				throw new MultiAccessError(`unknown provider "${options.provider}"`, { kind: "config" });
+				throw new CleverSeeError(`unknown provider "${options.provider}"`, { kind: "config" });
 			}
 			if (!providers[options.provider].configured) {
-				throw new MultiAccessError(`provider "${options.provider}" is not configured`, { kind: "no-provider" });
+				throw new CleverSeeError(`provider "${options.provider}" is not configured`, { kind: "no-provider" });
 			}
 			return [options.provider];
 		}
 		const order = config.providerOrder.filter((name) => providers[name]?.configured);
 		if (order.length === 0) {
-			throw new MultiAccessError("no provider configured: set CLEVERSEE_API_KEY", { kind: "no-provider" });
+			throw new CleverSeeError("no provider configured: set CLEVERSEE_API_KEY", { kind: "no-provider" });
 		}
 		return order;
 	}
@@ -84,7 +84,7 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 	// 单上游时不造聚合文案：保留最后一次失败的 kind/status/code，并附完整 attempts。
 	function terminalError(lastError, attempts, message) {
 		if (lastError) {
-			return new MultiAccessError(safeErrorMessage(lastError), {
+			return new CleverSeeError(safeErrorMessage(lastError), {
 				kind: lastError.kind ?? "unknown",
 				provider: lastError.provider ?? null,
 				status: lastError.status ?? 0,
@@ -95,7 +95,7 @@ export function createRouter({ config, providers, now = Date.now, sleep = defaul
 		}
 		// 没有任何实际调用（全部被熔断跳过）不应被说成「空结果」。
 		const allSkipped = attempts.length > 0 && attempts.every((attempt) => attempt.outcome === "circuit-open");
-		return new MultiAccessError(`${message} (${attemptsSummary(attempts) || "all skipped"})`, {
+		return new CleverSeeError(`${message} (${attemptsSummary(attempts) || "all skipped"})`, {
 			kind: allSkipped ? "circuit-open" : "empty",
 			attempts,
 		});

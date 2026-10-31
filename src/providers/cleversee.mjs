@@ -1,5 +1,5 @@
 import { ENGINES } from "../config.mjs";
-import { MultiAccessError } from "../errors.mjs";
+import { CleverSeeError } from "../errors.mjs";
 import { requestJson } from "../http.mjs";
 import { dedupe, isoDaysAgo, normalizeDomain, textBlock, textOneLine } from "../util.mjs";
 
@@ -9,13 +9,13 @@ const RECENCY_DAYS = Object.freeze({ day: 1, week: 7, month: 30, year: 365 });
 export function buildCleverSeeSearchBody(query, options = {}) {
 	const text = String(query ?? "").trim();
 	if (!text) {
-		throw new MultiAccessError("query must not be empty", { kind: "invalid", provider: "cleversee" });
+		throw new CleverSeeError("query must not be empty", { kind: "invalid", provider: "cleversee" });
 	}
 
 	const engine = options.engine ?? "CNLiteBasic";
 	const info = ENGINES[engine];
 	if (!info) {
-		throw new MultiAccessError(`unknown CleverSee engine "${engine}"`, { kind: "config", provider: "cleversee" });
+		throw new CleverSeeError(`unknown CleverSee engine "${engine}"`, { kind: "config", provider: "cleversee" });
 	}
 
 	const warnings = [];
@@ -44,13 +44,13 @@ export function buildCleverSeeSearchBody(query, options = {}) {
 	if (options.recency) {
 		if (engine === "GlobalAdvanced") {
 			const days = RECENCY_DAYS[options.recency];
-			if (!days) throw new MultiAccessError(`unsupported recency "${options.recency}"`, { kind: "invalid", provider: "cleversee" });
+			if (!days) throw new CleverSeeError(`unsupported recency "${options.recency}"`, { kind: "invalid", provider: "cleversee" });
 			const at = options.now ?? Date.now();
 			advanced.startPublishedDate = isoDaysAgo(days, at);
 			advanced.endPublishedDate = isoDaysAgo(0, at);
 		} else {
 			const range = TIME_RANGE[options.recency];
-			if (!range) throw new MultiAccessError(`unsupported recency "${options.recency}"`, { kind: "invalid", provider: "cleversee" });
+			if (!range) throw new CleverSeeError(`unsupported recency "${options.recency}"`, { kind: "invalid", provider: "cleversee" });
 			body.timeRange = range;
 		}
 	}
@@ -104,7 +104,7 @@ function classifyHttp(res) {
 	else if (status === 403) kind = /NotActivate|NotAuthorised|InvalidAccessKey/i.test(errorCode) ? "auth" : "target";
 	else if (status === 400) kind = "invalid";
 	else kind = "invalid";
-	return new MultiAccessError(`CleverSee HTTP ${status}${errorCode ? ` [${errorCode}]` : ""}: ${message}`, {
+	return new CleverSeeError(`CleverSee HTTP ${status}${errorCode ? ` [${errorCode}]` : ""}: ${message}`, {
 		kind,
 		provider: "cleversee",
 		status,
@@ -128,7 +128,7 @@ function readPageError(code, message, status) {
 			break;
 		}
 	}
-	return new MultiAccessError(`CleverSee ReadPage ${code ? `[${code}] ` : ""}${message}`.trim(), {
+	return new CleverSeeError(`CleverSee ReadPage ${code ? `[${code}] ` : ""}${message}`.trim(), {
 		kind,
 		provider: "cleversee",
 		status,
@@ -170,7 +170,7 @@ export function createCleverSeeProvider(config, deps = {}) {
 
 			if (res.status !== 200) throw classifyHttp(res);
 			if (res.data?.code && Number(res.data.code) !== 200 && Number(res.data.code) !== 201) {
-				throw new MultiAccessError(`CleverSee business error ${res.data.code}: ${textOneLine(res.data.message) || "unknown"}`, {
+				throw new CleverSeeError(`CleverSee business error ${res.data.code}: ${textOneLine(res.data.message) || "unknown"}`, {
 					kind: Number(res.data.code) === 429 ? "rate" : "invalid-response",
 					provider: "cleversee",
 					status: res.status,
@@ -180,7 +180,7 @@ export function createCleverSeeProvider(config, deps = {}) {
 
 			const list = Array.isArray(res.data?.pageItems) ? res.data.pageItems : null;
 			if (!list) {
-				throw new MultiAccessError("CleverSee returned an invalid response: missing pageItems array", {
+				throw new CleverSeeError("CleverSee returned an invalid response: missing pageItems array", {
 					kind: "invalid-response",
 					provider: "cleversee",
 					status: res.status,
@@ -242,7 +242,7 @@ export function createCleverSeeProvider(config, deps = {}) {
 			if (Number.isFinite(statusCode) && statusCode >= 400) {
 				const message = `target returned status ${statusCode}`;
 				const kind = statusCode === 4080 ? "transient" : statusCode === 4290 ? "rate" : "target";
-				throw new MultiAccessError(`CleverSee ReadPage ${mode}: ${message}`, {
+				throw new CleverSeeError(`CleverSee ReadPage ${mode}: ${message}`, {
 					kind,
 					provider: "cleversee",
 					status: statusCode,
@@ -252,7 +252,7 @@ export function createCleverSeeProvider(config, deps = {}) {
 
 			const content = textBlock(data.markdown) || textBlock(data.text);
 			if (!content) {
-				throw new MultiAccessError(`CleverSee ReadPage ${mode} returned no usable content`, {
+				throw new CleverSeeError(`CleverSee ReadPage ${mode} returned no usable content`, {
 					kind: "target",
 					provider: "cleversee",
 					status: res.status,

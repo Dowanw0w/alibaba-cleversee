@@ -1,23 +1,23 @@
 import { createCache } from "./cache.mjs";
 import { loadConfig, PROVIDER_NAMES, RECENCY_VALUES } from "./config.mjs";
-import { MultiAccessError } from "./errors.mjs";
+import { CleverSeeError } from "./errors.mjs";
 import { createCleverSeeProvider } from "./providers/cleversee.mjs";
 import { createRouter } from "./router.mjs";
 import { assertFetchableUrl, clamp } from "./util.mjs";
 
 function stringList(value, label) {
 	if (value === undefined || value === null) return undefined;
-	if (!Array.isArray(value)) throw new MultiAccessError(`${label} must be an array of strings`, { kind: "invalid" });
+	if (!Array.isArray(value)) throw new CleverSeeError(`${label} must be an array of strings`, { kind: "invalid" });
 	const list = value.map((item) => String(item ?? "").trim()).filter(Boolean);
 	return list.length > 0 ? list : undefined;
 }
 
 function normalizeSearchOptions(options = {}) {
 	if (options.recency !== undefined && !RECENCY_VALUES.includes(options.recency)) {
-		throw new MultiAccessError(`recency must be one of ${RECENCY_VALUES.join(", ")}`, { kind: "invalid" });
+		throw new CleverSeeError(`recency must be one of ${RECENCY_VALUES.join(", ")}`, { kind: "invalid" });
 	}
 	if (options.provider !== undefined && !PROVIDER_NAMES.includes(options.provider)) {
-		throw new MultiAccessError(`provider must be one of ${PROVIDER_NAMES.join(", ")}`, { kind: "invalid" });
+		throw new CleverSeeError(`provider must be one of ${PROVIDER_NAMES.join(", ")}`, { kind: "invalid" });
 	}
 	return {
 		...options,
@@ -29,12 +29,12 @@ function normalizeSearchOptions(options = {}) {
 
 function normalizeFetchOptions(options = {}) {
 	if (options.provider !== undefined && !PROVIDER_NAMES.includes(options.provider)) {
-		throw new MultiAccessError(`provider must be one of ${PROVIDER_NAMES.join(", ")}`, { kind: "invalid" });
+		throw new CleverSeeError(`provider must be one of ${PROVIDER_NAMES.join(", ")}`, { kind: "invalid" });
 	}
 	return { ...options };
 }
 
-export function createMultiAccess(options = {}) {
+export function createCleverSee(options = {}) {
 	const env = options.env ?? process.env;
 	const config = loadConfig(env, {
 		engine: options.engine,
@@ -72,7 +72,7 @@ export function createMultiAccess(options = {}) {
 
 		async search(query, searchOptions = {}) {
 			const text = typeof query === "string" ? query : String(query ?? "");
-			if (!text.trim()) throw new MultiAccessError("query must not be empty", { kind: "invalid" });
+			if (!text.trim()) throw new CleverSeeError("query must not be empty", { kind: "invalid" });
 			return router.search(text, normalizeSearchOptions(searchOptions));
 		},
 

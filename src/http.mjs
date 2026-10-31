@@ -1,4 +1,4 @@
-import { MultiAccessError } from "./errors.mjs";
+import { CleverSeeError } from "./errors.mjs";
 import { redactSecret } from "./util.mjs";
 
 // 统一 JSON 请求：超时 + 上游取消合并，网络/超时错误分类。
@@ -26,12 +26,12 @@ export async function requestJson(url, options = {}) {
 		});
 	} catch (error) {
 		if (signal?.aborted) {
-			throw new MultiAccessError("request aborted by caller", { kind: "aborted", cause: error });
+			throw new CleverSeeError("request aborted by caller", { kind: "aborted", cause: error });
 		}
 		const name = error instanceof Error ? error.name : "";
 		const message = redactSecret(error instanceof Error ? error.message : String(error), secret);
 		const timedOut = /timeout|timed out/i.test(`${name} ${message}`);
-		throw new MultiAccessError(`${timedOut ? "request timed out" : "network error"}: ${message}`, {
+		throw new CleverSeeError(`${timedOut ? "request timed out" : "network error"}: ${message}`, {
 			kind: timedOut ? "transient" : "network",
 			cause: error,
 		});

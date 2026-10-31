@@ -1,10 +1,10 @@
-import { createMultiAccess } from "../src/index.mjs";
+import { createCleverSee } from "../src/index.mjs";
 
 const MAX_SEARCH_CHARS = 36_000;
 const MAX_FETCH_CHARS = 38_000;
 const SNIPPET_CHARS = 400;
 
-const client = createMultiAccess();
+const client = createCleverSee();
 
 function attemptsLine(meta) {
 	const attempts = meta?.attempts ?? [];
@@ -37,7 +37,7 @@ function formatSearch(response) {
 	const { provider, results, meta } = response;
 	const lines = [];
 	const engine = response.engine ?? meta?.engine ?? "CNLiteBasic";
-	lines.push(`multi-access · CleverSee ${engine} · ${results.length} results · ~¥${Number(meta?.estimatedCostCny ?? 0).toFixed(4)}`);
+	lines.push(`alibaba-cleversee · CleverSee ${engine} · ${results.length} results · ~¥${Number(meta?.estimatedCostCny ?? 0).toFixed(4)}`);
 	const trail = attemptsLine(meta);
 	if (trail) lines.push(`attempts: ${trail}`);
 	lines.push("");
@@ -55,7 +55,7 @@ function formatSearch(response) {
 		if (result.authority !== null && result.authority !== undefined) facts.push(`authority=${result.authority}`);
 		if (result.score !== null && result.score !== undefined) facts.push(`score=${Number(result.score).toFixed(3)}`);
 		if (facts.length > 0) lines.push(`   [${facts.join(" · ")}]`);
-		if (result.content) lines.push(`   content: ${result.content.length} chars (use multi_fetch for full text)`);
+		if (result.content) lines.push(`   content: ${result.content.length} chars (use cleversee_fetch for full text)`);
 		lines.push("");
 	});
 
@@ -69,7 +69,7 @@ function formatSearch(response) {
 function formatFetch(response) {
 	const providerLabel = `CleverSee ${response.mode ?? "basic"}`;
 	const head = [
-		`multi-access · ${providerLabel} · ${response.content.length} chars${costLabel(response.meta)}`,
+		`alibaba-cleversee · ${providerLabel} · ${response.content.length} chars${costLabel(response.meta)}`,
 		`url: ${response.url}`,
 		response.title ? `title: ${response.title}` : null,
 		response.meta?.cached ? "cached: true" : null,
@@ -78,14 +78,14 @@ function formatFetch(response) {
 	return truncateBlock(`${head.join("\n")}\n${response.content}`, MAX_FETCH_CHARS);
 }
 
-export const multiSearchTool = {
-	name: "multi_search",
-	label: "Multi-Access Search",
+export const cleverSeeSearchTool = {
+	name: "cleversee_search",
+	label: "Alibaba CleverSee Search",
 	description:
-		"Web search through Aliyun CleverSee (search/unified). Supports structured domain filters and recency; query operators such as site:/after:/-site: are NOT supported — use include_domains/exclude_domains/recency instead. Returns titles, URLs, snippets and metadata; use multi_fetch for full page text.",
-	promptSnippet: "multi_search: Aliyun CleverSee web search",
+		"Web search through Aliyun CleverSee (search/unified). Supports structured domain filters and recency; query operators such as site:/after:/-site: are NOT supported — use include_domains/exclude_domains/recency instead. Returns titles, URLs, snippets and metadata; use cleversee_fetch for full page text.",
+	promptSnippet: "cleversee_search: Aliyun CleverSee web search",
 	promptGuidelines: [
-		"Prefer multi_search for web searches; it calls Aliyun CleverSee (CNLiteBasic by default).",
+		"Prefer cleversee_search for web searches; it calls Aliyun CleverSee (CNLiteBasic by default).",
 		"Pass include_domains/exclude_domains or recency when you need site- or time-scoped results — do not rely on site:/after: query operators, they are not available.",
 	],
 	parameters: {
@@ -125,13 +125,13 @@ export const multiSearchTool = {
 	},
 };
 
-export const multiFetchTool = {
-	name: "multi_fetch",
-	label: "Multi-Access Fetch",
+export const cleverSeeFetchTool = {
+	name: "cleversee_fetch",
+	label: "Alibaba CleverSee Fetch",
 	description:
 		"Fetch one web page and return Markdown through Aliyun CleverSee ReadPage. Static pages use readpage/basic; set scrape to allow the browser-rendered readpage/scrape fallback (slower, higher cost). Successful fetches are cached briefly in-process.",
-	promptSnippet: "multi_fetch: Aliyun CleverSee ReadPage fetch",
-	promptGuidelines: ["Use multi_fetch when you already have a URL and need its readable content."],
+	promptSnippet: "cleversee_fetch: Aliyun CleverSee ReadPage fetch",
+	promptGuidelines: ["Use cleversee_fetch when you already have a URL and need its readable content."],
 	parameters: {
 		type: "object",
 		properties: {
@@ -165,7 +165,7 @@ export const multiFetchTool = {
 };
 
 function formatStatus(status) {
-	const lines = ["multi-access status", `order: ${status.order.join(" → ")}`, `cleversee engine: ${status.engine}`];
+	const lines = ["alibaba-cleversee status", `order: ${status.order.join(" → ")}`, `cleversee engine: ${status.engine}`];
 	for (const [name, info] of Object.entries(status.providers)) {
 		lines.push(`${name}: ${info.configured ? "configured" : "MISSING KEY"}`);
 	}
@@ -183,11 +183,11 @@ function formatStatus(status) {
 
 async function runDoctor() {
 	const started = Date.now();
-	const response = await client.search("multi-access doctor self test", { count: 1, needContent: false });
+	const response = await client.search("alibaba-cleversee doctor self test", { count: 1, needContent: false });
 	const elapsed = Date.now() - started;
 	const first = response.results[0];
 	return [
-		`multi-access doctor`,
+		`alibaba-cleversee doctor`,
 		`provider: ${response.provider}`,
 		`engine: ${response.engine ?? "-"}`,
 		`elapsed: ${elapsed}ms`,
@@ -197,11 +197,11 @@ async function runDoctor() {
 	].join("\n");
 }
 
-export default function multiAccessExtension(pi) {
-	pi.registerTool(multiSearchTool);
-	pi.registerTool(multiFetchTool);
+export default function alibabaCleverSeeExtension(pi) {
+	pi.registerTool(cleverSeeSearchTool);
+	pi.registerTool(cleverSeeFetchTool);
 
-	pi.registerCommand("multi-access", {
+	pi.registerCommand("alibaba-cleversee", {
 		description: "Multi-access status, doctor, or cache control (Aliyun CleverSee)",
 		handler: async (args, ctx) => {
 			const command = String(args ?? "").trim().split(/\s+/)[0] || "status";
@@ -219,12 +219,12 @@ export default function multiAccessExtension(pi) {
 				}
 				if (command === "clear-cache") {
 					client.clearCache();
-					notify("multi-access cache cleared");
+					notify("alibaba-cleversee cache cleared");
 					return;
 				}
-				notify("usage: /multi-access status | doctor | clear-cache", "warning");
+				notify("usage: /alibaba-cleversee status | doctor | clear-cache", "warning");
 			} catch (error) {
-				notify(`multi-access ${command} failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+				notify(`alibaba-cleversee ${command} failed: ${error instanceof Error ? error.message : String(error)}`, "error");
 			}
 		},
 	});

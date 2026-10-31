@@ -1,4 +1,4 @@
-import { MultiAccessError } from "./errors.mjs";
+import { CleverSeeError } from "./errors.mjs";
 
 export function textOneLine(value) {
 	return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -70,22 +70,22 @@ export function isPrivateHost(hostname) {
 }
 
 // Fetch 入口的唯一 URL 校验：只允许 http(s)，禁止 URL 内凭据；
-// 默认拒绝回环/私网/链路本地地址，内网调试可显式开启 MULTI_ACCESS_ALLOW_PRIVATE=1。
+// 默认拒绝回环/私网/链路本地地址，内网调试可显式开启 CLEVERSEE_ALLOW_PRIVATE=1。
 export function assertFetchableUrl(raw, { allowPrivate = false } = {}) {
 	let url;
 	try {
 		url = new URL(String(raw ?? "").trim());
 	} catch {
-		throw new MultiAccessError(`invalid URL: ${JSON.stringify(String(raw ?? "").slice(0, 200))}`, { kind: "invalid" });
+		throw new CleverSeeError(`invalid URL: ${JSON.stringify(String(raw ?? "").slice(0, 200))}`, { kind: "invalid" });
 	}
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
-		throw new MultiAccessError(`unsupported URL scheme "${url.protocol}" (only http/https)`, { kind: "invalid" });
+		throw new CleverSeeError(`unsupported URL scheme "${url.protocol}" (only http/https)`, { kind: "invalid" });
 	}
 	if (url.username || url.password) {
-		throw new MultiAccessError("URL must not contain credentials", { kind: "invalid" });
+		throw new CleverSeeError("URL must not contain credentials", { kind: "invalid" });
 	}
 	if (!allowPrivate && isPrivateHost(url.hostname)) {
-		throw new MultiAccessError(`refusing to fetch private or loopback host "${url.hostname}" (set MULTI_ACCESS_ALLOW_PRIVATE=1 to override)`, { kind: "invalid" });
+		throw new CleverSeeError(`refusing to fetch private or loopback host "${url.hostname}" (set CLEVERSEE_ALLOW_PRIVATE=1 to override)`, { kind: "invalid" });
 	}
 	return url.href;
 }

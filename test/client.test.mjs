@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMultiAccess } from "../src/index.mjs";
+import { createCleverSee } from "../src/index.mjs";
 import { jsonResponse, scriptedFetch } from "./helpers.mjs";
 
 const NOW = Date.UTC(2026, 9, 19);
@@ -43,7 +43,7 @@ function routedFetch({ basicStatus = 200 } = {}) {
 
 test("client search calls CleverSee and forwards count and domain filters", async () => {
 	const fetchImpl = routedFetch();
-	const client = createMultiAccess({ env: ENV, fetchImpl, now: () => NOW });
+	const client = createCleverSee({ env: ENV, fetchImpl, now: () => NOW });
 
 	const result = await client.search("kubernetes", { count: 3, includeDomains: ["kubernetes.io"], recency: "week" });
 	assert.equal(result.provider, "cleversee");
@@ -57,9 +57,9 @@ test("client search calls CleverSee and forwards count and domain filters", asyn
 	assert.equal(fetchImpl.calls[0].body.timeRange, "OneWeek");
 });
 
-test("client honors MULTI_ACCESS_ENGINE in the request body", async () => {
+test("client honors CLEVERSEE_ENGINE in the request body", async () => {
 	const fetchImpl = routedFetch();
-	const client = createMultiAccess({ env: { ...ENV, MULTI_ACCESS_ENGINE: "CNAuto" }, fetchImpl, now: () => NOW });
+	const client = createCleverSee({ env: { ...ENV, CLEVERSEE_ENGINE: "CNAuto" }, fetchImpl, now: () => NOW });
 
 	const result = await client.search("kubernetes", { count: 3 });
 	assert.equal(result.engine, "CNAuto");
@@ -69,7 +69,7 @@ test("client honors MULTI_ACCESS_ENGINE in the request body", async () => {
 
 test("client fetch reads through ReadPage and caches the result", async () => {
 	const fetchImpl = routedFetch();
-	const client = createMultiAccess({ env: ENV, fetchImpl, now: () => NOW });
+	const client = createCleverSee({ env: ENV, fetchImpl, now: () => NOW });
 
 	const first = await client.fetch("https://example.com/page");
 	assert.equal(first.provider, "cleversee");
@@ -88,7 +88,7 @@ test("client fetch reads through ReadPage and caches the result", async () => {
 
 test("client fetch falls back to the rendered ReadPage when scrape is allowed", async () => {
 	const fetchImpl = routedFetch({ basicStatus: 4030 });
-	const client = createMultiAccess({ env: ENV, fetchImpl, now: () => NOW });
+	const client = createCleverSee({ env: ENV, fetchImpl, now: () => NOW });
 
 	const result = await client.fetch("https://example.com/page", { scrape: true });
 	assert.equal(result.mode, "scrape");
@@ -101,7 +101,7 @@ test("client fetch falls back to the rendered ReadPage when scrape is allowed", 
 
 test("client refuses private, credential-bearing and non-http URLs before any request", async () => {
 	const fetchImpl = routedFetch();
-	const client = createMultiAccess({ env: ENV, fetchImpl, now: () => NOW });
+	const client = createCleverSee({ env: ENV, fetchImpl, now: () => NOW });
 
 	for (const url of ["http://127.0.0.1:8080/x", "http://localhost/x", "file:///etc/passwd", "https://user:pass@example.com/x"]) {
 		await assert.rejects(client.fetch(url), (error) => error.kind === "invalid");
@@ -111,18 +111,18 @@ test("client refuses private, credential-bearing and non-http URLs before any re
 
 test("client can opt into private hosts", async () => {
 	const fetchImpl = routedFetch();
-	const client = createMultiAccess({ env: { ...ENV, MULTI_ACCESS_ALLOW_PRIVATE: "1" }, fetchImpl, now: () => NOW });
+	const client = createCleverSee({ env: { ...ENV, CLEVERSEE_ALLOW_PRIVATE: "1" }, fetchImpl, now: () => NOW });
 	const result = await client.fetch("http://127.0.0.1:8080/page");
 	assert.equal(result.provider, "cleversee");
 });
 
 test("client reports no-provider when the CleverSee key is missing", async () => {
-	const client = createMultiAccess({ env: {}, fetchImpl: routedFetch(), now: () => NOW });
+	const client = createCleverSee({ env: {}, fetchImpl: routedFetch(), now: () => NOW });
 	await assert.rejects(client.search("q"), (error) => error.kind === "no-provider");
 });
 
 test("client status exposes provider configuration and cache state", () => {
-	const client = createMultiAccess({ env: ENV, fetchImpl: routedFetch(), now: () => NOW });
+	const client = createCleverSee({ env: ENV, fetchImpl: routedFetch(), now: () => NOW });
 	const status = client.status();
 	assert.equal(status.providers.cleversee.configured, true);
 	assert.equal(status.engine, "CNLiteBasic");
@@ -133,7 +133,7 @@ test("client status exposes provider configuration and cache state", () => {
 
 test("client respects a zero cache TTL", async () => {
 	const fetchImpl = routedFetch();
-	const client = createMultiAccess({ env: { ...ENV, MULTI_ACCESS_CACHE_TTL: "0" }, fetchImpl, now: () => NOW });
+	const client = createCleverSee({ env: { ...ENV, CLEVERSEE_CACHE_TTL: "0" }, fetchImpl, now: () => NOW });
 	await client.fetch("https://example.com/page");
 	const callsAfterFirst = fetchImpl.calls.length;
 	await client.fetch("https://example.com/page");

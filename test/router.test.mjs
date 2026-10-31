@@ -59,7 +59,7 @@ test("breaker opens after consecutive failures and half-opens after cooldown", a
 			throw errorOf("transient", "boom", { status: 500 });
 		},
 	});
-	const config = testConfig({ MULTI_ACCESS_BREAKER_THRESHOLD: "2", MULTI_ACCESS_BREAKER_COOLDOWN_MS: "1000" });
+	const config = testConfig({ CLEVERSEE_BREAKER_THRESHOLD: "2", CLEVERSEE_BREAKER_COOLDOWN_MS: "1000" });
 	const router = createRouter({ config, providers, now: () => clock, sleep: async () => {} });
 
 	await assert.rejects(router.search("q", {}), (error) => error.kind === "transient");
@@ -90,7 +90,7 @@ test("target errors do not open the fetch breaker", async () => {
 			throw errorOf("target", "ReadPage 404", { status: 404 });
 		},
 	});
-	const config = testConfig({ MULTI_ACCESS_BREAKER_THRESHOLD: "2" });
+	const config = testConfig({ CLEVERSEE_BREAKER_THRESHOLD: "2" });
 	const router = createRouter({ config, providers, now: () => 1_000, sleep: async () => {} });
 
 	for (let index = 0; index < 3; index += 1) {
@@ -108,7 +108,7 @@ test("local throttling does not open the breaker", async () => {
 	let clock = 1_000;
 	const providers = cleverseeOnly({ search: searchOk() });
 	// qps=1 且 maxWait=0：每分钟只能放过 1 次，其余在本地排队即失败。
-	const config = testConfig({ MULTI_ACCESS_CLEVERSEE_QPS: "1", MULTI_ACCESS_LIMITER_MAX_WAIT_MS: "0", MULTI_ACCESS_BREAKER_THRESHOLD: "2" });
+	const config = testConfig({ CLEVERSEE_QPS: "1", CLEVERSEE_LIMITER_MAX_WAIT_MS: "0", CLEVERSEE_BREAKER_THRESHOLD: "2" });
 	const router = createRouter({ config, providers, now: () => clock, sleep: async () => {} });
 
 	const first = await router.search("q", {});

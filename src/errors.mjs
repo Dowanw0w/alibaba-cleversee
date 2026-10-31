@@ -1,10 +1,10 @@
 // 统一错误类型。`kind` 决定路由是否换下一家 provider。
 //
 // 约定：错误文本会进入日志与工具结果，禁止拼接 API Key、完整 query 或网页正文。
-export class MultiAccessError extends Error {
+export class CleverSeeError extends Error {
 	constructor(message, options = {}) {
 		super(String(message), options.cause ? { cause: options.cause } : undefined);
-		this.name = "MultiAccessError";
+		this.name = "CleverSeeError";
 		this.kind = options.kind ?? "unknown";
 		this.provider = options.provider ?? null;
 		this.status = Number.isFinite(options.status) ? Number(options.status) : 0;

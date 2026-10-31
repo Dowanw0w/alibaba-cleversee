@@ -1,4 +1,4 @@
-import { MultiAccessError } from "./errors.mjs";
+import { CleverSeeError } from "./errors.mjs";
 import { defaultSleep } from "./util.mjs";
 
 // 令牌桶限速：等待超过上限时抛 local-throttle 错误，交给路由切换。
@@ -26,7 +26,7 @@ export function createLimiter({ qps, maxWaitMs = 1_500, now = Date.now, sleep = 
 			}
 			const waitMs = Math.ceil((1 - tokens) / refillPerMs);
 			if (waitMs > maxWaitMs) {
-				throw new MultiAccessError(`rate limit wait ${waitMs}ms exceeds ${maxWaitMs}ms`, { kind: "local-throttle" });
+				throw new CleverSeeError(`rate limit wait ${waitMs}ms exceeds ${maxWaitMs}ms`, { kind: "local-throttle" });
 			}
 			await sleep(waitMs);
 			refill(now());

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-import { createMultiAccess, ENGINES } from "../src/index.mjs";
+import { createCleverSee, ENGINES } from "../src/index.mjs";
 
-const USAGE = `multi-access — Aliyun CleverSee search/fetch
+const USAGE = `alibaba-cleversee — Aliyun CleverSee search/fetch
 
 Usage:
-  multi-access search <query> [options]
-  multi-access fetch <url> [options]
-  multi-access status
-  multi-access doctor
-  multi-access help
+  alibaba-cleversee search <query> [options]
+  alibaba-cleversee fetch <url> [options]
+  alibaba-cleversee status
+  alibaba-cleversee doctor
+  alibaba-cleversee help
 
 Search options:
   -n, --count <1-50>        number of results (default 5)
@@ -131,7 +131,7 @@ async function main() {
 		return;
 	}
 
-	const client = createMultiAccess({ engine: flags.engine });
+	const client = createCleverSee({ engine: flags.engine });
 
 	if (command === "status") {
 		process.stdout.write(`${JSON.stringify(client.status(), null, 2)}\n`);
@@ -140,10 +140,10 @@ async function main() {
 
 	if (command === "doctor") {
 		const started = Date.now();
-		const result = await client.search("multi-access doctor self test", { count: 1 });
+		const result = await client.search("alibaba-cleversee doctor self test", { count: 1 });
 		const first = result.results[0];
 		const lines = [
-			"multi-access doctor",
+			"alibaba-cleversee doctor",
 			`provider: ${result.provider}`,
 			`elapsed: ${Date.now() - started}ms`,
 			`results: ${result.results.length}`,
@@ -183,6 +183,6 @@ async function main() {
 
 main().catch((error) => {
 	const message = error instanceof Error ? error.message : String(error);
-	process.stderr.write(`multi-access: ${message}\n`);
+	process.stderr.write(`alibaba-cleversee: ${message}\n`);
 	process.exitCode = 1;
 });
