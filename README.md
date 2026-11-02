@@ -11,15 +11,22 @@
 
 ## 安装
 
-```bash
-# Pi 扩展
-pi install npm:@dowanw0w/alibaba-cleversee@1.0.0
+分发渠道只有本仓库（GitHub），**不再发布到公共 npm registry**；npmjs 上残留的 `1.0.0` 是历史版本，不再更新，请勿使用。
 
-# 或只装 CLI
-npm install -g @dowanw0w/alibaba-cleversee
+```bash
+# Pi 扩展（推荐：按 tag pin 版本）
+pi install git:github.com/Dowanw0w/alibaba-cleversee@v1.0.2
+
+# 跟随 main 最新提交（版本会漂移，不推荐长期使用）
+pi install git:github.com/Dowanw0w/alibaba-cleversee
+
+# 仅安装 CLI：克隆后本地全局安装
+git clone https://github.com/Dowanw0w/alibaba-cleversee.git
+cd alibaba-cleversee
+npm install -g .
 ```
 
-Pi 会按包内 `pi.extensions` 自动注册工具与命令。版本被 pin 住，升级需重新 `pi install` 到新版本或运行 `pi update`。
+Pi 会按包内 `pi.extensions` 自动注册工具与命令，并自动安装包依赖。git 源按 ref 锁定：安装时指定了 tag 或 commit 就固定不动，`pi update --extensions` 只重新同步该 ref；升级需重新 `pi install` 到新 tag。本包零运行时依赖、无构建步骤，Node ≥ 22。
 
 ## 准备 API Key
 

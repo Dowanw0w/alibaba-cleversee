@@ -1,6 +1,6 @@
 {
   "name": "@dowanw0w/alibaba-cleversee",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Unofficial Pi extension and CLI for Alibaba Cloud CleverSee web search and page fetch",
   "type": "module",
   "license": "MIT",
@@ -44,10 +44,7 @@
   "scripts": {
     "start": "node bin/alibaba-cleversee.mjs",
     "test": "node --test test/*.test.mjs",
-    "test:live": "CLEVERSEE_LIVE=1 node --test test/live.test.mjs",
-    "prepublishOnly": "npm test"
+    "test:live": "CLEVERSEE_LIVE=1 node --test test/live.test.mjs"
   },
-  "publishConfig": {
-    "access": "public"
-  }
+  "private": true
 }
