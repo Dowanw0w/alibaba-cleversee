@@ -1,0 +1,20 @@
+# Bundle patch applied when this package is installed as a DSH profile layer
+# (`dsh plugin --profile <name> add <this package>`).
+#
+# It registers CleverSee with `ctx.web` and points the built-in `web_search`
+# at it. `web_fetch` stays on DSH's anonymous HTTP provider by default; switch
+# `fetchProvider` to `cleversee` to use ReadPage instead. Both rows can be
+# overridden by the profile's own ~/.dsh/profiles/<name>/cordis.patch.yml.
+- id: web
+  config:
+    searchProvider: cleversee
+    fetchProvider: http
+
+- insert:
+    - id: web-cleversee
+      name: '@dowanw0w/alibaba-cleversee/dsh'
+      config:
+        apiKeyEnv: CLEVERSEE_API_KEY
+        engine: CNLiteBasic
+        fetch: true
+        scrape: false

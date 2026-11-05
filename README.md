@@ -6,7 +6,7 @@
 
 - **Search**：`POST /search/unified`，默认 `CNLiteBasic` 引擎。
 - **Fetch**：`POST /readpage/basic`，可选降级到浏览器渲染的 `POST /readpage/scrape`。
-- 两种形态：Pi 扩展（`cleversee_search` / `cleversee_fetch` 工具 + `/alibaba-cleversee` 命令）与 CLI。
+- 三种形态：Pi 扩展（`cleversee_search` / `cleversee_fetch` 工具 + `/alibaba-cleversee` 命令）、CLI，以及 [DeepSeek Harness (DSH) 插件](./dsh/README.md)（注册为 `ctx.web` 的 search / fetch provider）。
 - 零运行时依赖，只用 Node 内置模块，无构建步骤。
 
 ## 安装
@@ -15,7 +15,7 @@
 
 ```bash
 # Pi 扩展（推荐：按 tag pin 版本）
-pi install git:github.com/Dowanw0w/alibaba-cleversee@v1.0.2
+pi install git:github.com/Dowanw0w/alibaba-cleversee@v1.1.0
 
 # 跟随 main 最新提交（版本会漂移，不推荐长期使用）
 pi install git:github.com/Dowanw0w/alibaba-cleversee
@@ -24,6 +24,9 @@ pi install git:github.com/Dowanw0w/alibaba-cleversee
 git clone https://github.com/Dowanw0w/alibaba-cleversee.git
 cd alibaba-cleversee
 npm install -g .
+
+# DSH 插件：装进 profile 即自动挂载（步骤见 dsh/README.md）
+dsh plugin --profile dsh-tui add github:Dowanw0w/alibaba-cleversee#v1.1.0
 ```
 
 Pi 会按包内 `pi.extensions` 自动注册工具与命令，并自动安装包依赖。git 源按 ref 锁定：安装时指定了 tag 或 commit 就固定不动，`pi update --extensions` 只重新同步该 ref；升级需重新 `pi install` 到新 tag。本包零运行时依赖、无构建步骤，Node ≥ 22。
